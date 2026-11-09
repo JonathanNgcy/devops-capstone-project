@@ -8,16 +8,19 @@ Test cases can be run with the following:
 import os
 import logging
 from unittest import TestCase
+from unittest.mock import patch
 from tests.factories import AccountFactory
 from service.common import status  # HTTP Status Codes
 from service.models import db, Account, init_db
 from service.routes import app
+from service import talisman
 
 DATABASE_URI = os.getenv(
     "DATABASE_URI", "postgresql://postgres:postgres@localhost:5432/postgres"
 )
 
 BASE_URL = "/accounts"
+HTTPS_ENVIRON = {"wsgi.url_scheme": "https"}
 
 
 ######################################################################
@@ -31,6 +34,7 @@ class TestAccountService(TestCase):
         """Run once before all tests"""
         app.config["TESTING"] = True
         app.config["DEBUG"] = False
+        talisman.force_https = False
         app.config["SQLALCHEMY_DATABASE_URI"] = DATABASE_URI
         app.logger.setLevel(logging.CRITICAL)
         init_db(app)
@@ -195,3 +199,36 @@ class TestAccountService(TestCase):
         found = self.client.get(response.headers["Location"])
         self.assertEqual(found.status_code, status.HTTP_200_OK)
         self.assertEqual(found.get_json(), response.get_json())
+
+    def test_security_headers(self):
+        """It should return the required security headers over HTTPS."""
+        response = self.client.get("/", environ_overrides=HTTPS_ENVIRON)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        headers = {
+            "X-Frame-Options": "SAMEORIGIN",
+            "X-Content-Type-Options": "nosniff",
+            "Content-Security-Policy": "default-src 'self'; object-src 'none'",
+            "Referrer-Policy": "strict-origin-when-cross-origin",
+        }
+        for name, value in headers.items():
+            self.assertEqual(response.headers.get(name), value)
+
+    def test_cors_security(self):
+        """It should return the course's public API CORS policy."""
+        response = self.client.get("/", environ_overrides=HTTPS_ENVIRON)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.headers.get("Access-Control-Allow-Origin"), "*")
+
+    def test_method_not_allowed(self):
+        """It should return a JSON error for an unsupported API method."""
+        response = self.client.patch(BASE_URL)
+        self.assertEqual(response.status_code, status.HTTP_405_METHOD_NOT_ALLOWED)
+        self.assertEqual(response.get_json()["error"], "Method not Allowed")
+
+    def test_internal_server_error(self):
+        """It should handle an unexpected backend failure without exposing a traceback."""
+        with patch("service.routes.Account.all", side_effect=RuntimeError("simulated failure")):
+            with patch.dict(app.config, {"TESTING": False, "PROPAGATE_EXCEPTIONS": False}):
+                response = self.client.get(BASE_URL)
+        self.assertEqual(response.status_code, status.HTTP_500_INTERNAL_SERVER_ERROR)
+        self.assertEqual(response.get_json()["error"], "Internal Server Error")
