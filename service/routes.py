@@ -52,16 +52,22 @@ def create_accounts():
     message = account.serialize()
     # Uncomment once get_accounts has been implemented
     # location_url = url_for("get_accounts", account_id=account.id, _external=True)
-    location_url = "/"  # Remove once get_accounts has been implemented
+    location_url = url_for("get_accounts", account_id=account.id, _external=True)
     return make_response(
         jsonify(message), status.HTTP_201_CREATED, {"Location": location_url}
     )
+
 
 ######################################################################
 # LIST ALL ACCOUNTS
 ######################################################################
 
 # ... place you code here to LIST accounts ...
+
+@app.route("/accounts", methods=["GET"])
+def list_accounts():
+    """Return all accounts as a JSON array."""
+    return jsonify([account.serialize() for account in Account.all()]), status.HTTP_200_OK
 
 
 ######################################################################
@@ -70,6 +76,14 @@ def create_accounts():
 
 # ... place you code here to READ an account ...
 
+@app.route("/accounts/<int:account_id>", methods=["GET"])
+def get_accounts(account_id):
+    """Retrieve an account or return 404 when it does not exist."""
+    account = Account.find(account_id)
+    if account is None:
+        abort(status.HTTP_404_NOT_FOUND, f"Account with id '{account_id}' was not found.")
+    return jsonify(account.serialize()), status.HTTP_200_OK
+
 
 ######################################################################
 # UPDATE AN EXISTING ACCOUNT
@@ -77,12 +91,31 @@ def create_accounts():
 
 # ... place you code here to UPDATE an account ...
 
+@app.route("/accounts/<int:account_id>", methods=["PUT"])
+def update_accounts(account_id):
+    """Update and persist an existing account from JSON."""
+    check_content_type("application/json")
+    account = Account.find(account_id)
+    if account is None:
+        abort(status.HTTP_404_NOT_FOUND, f"Account with id '{account_id}' was not found.")
+    account.deserialize(request.get_json())
+    account.update()
+    return jsonify(account.serialize()), status.HTTP_200_OK
+
 
 ######################################################################
 # DELETE AN ACCOUNT
 ######################################################################
 
 # ... place you code here to DELETE an account ...
+
+@app.route("/accounts/<int:account_id>", methods=["DELETE"])
+def delete_accounts(account_id):
+    """Delete an account; repeated deletion remains successful."""
+    account = Account.find(account_id)
+    if account is not None:
+        account.delete()
+    return "", status.HTTP_204_NO_CONTENT
 
 
 ######################################################################

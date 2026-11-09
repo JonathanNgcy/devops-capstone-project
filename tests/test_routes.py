@@ -124,3 +124,74 @@ class TestAccountService(TestCase):
         self.assertEqual(response.status_code, status.HTTP_415_UNSUPPORTED_MEDIA_TYPE)
 
     # ADD YOUR TEST CASES HERE ...
+
+    def test_read_account(self):
+        """It should retrieve every field of an existing account."""
+        account = self._create_accounts(1)[0]
+        response = self.client.get(f"{BASE_URL}/{account.id}")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.get_json(), account.serialize())
+
+    def test_read_account_not_found(self):
+        """It should return 404 for an unknown account."""
+        response = self.client.get(f"{BASE_URL}/0")
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_list_accounts(self):
+        """It should list all accounts, including an initially empty list."""
+        response = self.client.get(BASE_URL)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.get_json(), [])
+        accounts = self._create_accounts(3)
+        response = self.client.get(BASE_URL)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(
+            {account["id"] for account in response.get_json()},
+            {account.id for account in accounts},
+        )
+
+    def test_update_account(self):
+        """It should persist an update without creating another account."""
+        account = self._create_accounts(1)[0]
+        data = account.serialize()
+        data["phone_number"] = "555-1111"
+        response = self.client.put(f"{BASE_URL}/{account.id}", json=data)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.get_json(), data)
+        response = self.client.get(f"{BASE_URL}/{account.id}")
+        self.assertEqual(response.get_json(), data)
+        self.assertEqual(len(self.client.get(BASE_URL).get_json()), 1)
+
+    def test_update_account_not_found(self):
+        """It should return 404 when updating an unknown account."""
+        response = self.client.put(f"{BASE_URL}/0", json=AccountFactory().serialize())
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_update_account_invalid_body(self):
+        """It should reject invalid JSON fields and unsupported media types."""
+        account = self._create_accounts(1)[0]
+        url = f"{BASE_URL}/{account.id}"
+        self.assertEqual(self.client.put(url, json={}).status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(
+            self.client.put(url, data="invalid").status_code,
+            status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
+        )
+
+    def test_delete_account(self):
+        """It should remove an account and allow repeated deletion."""
+        account = self._create_accounts(1)[0]
+        url = f"{BASE_URL}/{account.id}"
+        response = self.client.delete(url)
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+        self.assertEqual(response.data, b"")
+        self.assertEqual(self.client.get(url).status_code, status.HTTP_404_NOT_FOUND)
+        self.assertEqual(self.client.get(BASE_URL).get_json(), [])
+        self.assertEqual(self.client.delete(url).status_code, status.HTTP_204_NO_CONTENT)
+
+    def test_create_account_location(self):
+        """It should return a usable Location URL for the created account."""
+        response = self.client.post(BASE_URL, json=AccountFactory().serialize())
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        found = self.client.get(response.headers["Location"])
+        self.assertEqual(found.status_code, status.HTTP_200_OK)
+        self.assertEqual(found.get_json(), response.get_json())
